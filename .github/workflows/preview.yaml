@@ -1,0 +1,96 @@
+name: build-preview
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - documents/**/main.typ
+      - .github/workflows/**
+
+jobs:
+  discover_examples:
+    runs-on: ubuntu-latest
+    outputs:
+      folders: ${{ steps.discover.outputs.folders }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Discover document folders
+        id: discover
+        run: |
+          # Find all main.typ files and get parent directories
+          folders=$(find documents -name "main.typ" -type f | xargs dirname | sort)
+          
+          # Convert to JSON array
+          folders_json=$(echo "$folders" | jq -R -s 'split("\n") | map(select(length > 0))')
+          
+          # Debug output
+          echo "Discovered folders: $folders_json"
+          
+          # Use heredoc syntax for multiline output
+          {
+            echo 'folders<<EOF'
+            echo "$folders_json"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+  build_preview:
+    needs: discover_examples
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        folder: ${{ fromJSON(needs.discover_examples.outputs.folders) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Extract directory info
+        id: dirinfo
+        run: |
+          folder_name=$(basename "${{ matrix.folder }}")
+          echo "folder_name=$folder_name" >> $GITHUB_ENV
+          echo "output_dir=preview/$folder_name" >> $GITHUB_ENV
+
+      - name: Create output directory
+        run: |
+          mkdir -p ${{ env.output_dir }}
+
+      - name: Compile PDF
+        uses: docker://ghcr.io/typst/typst:v0.13.1
+        with:
+          args: >-
+            compile --root . ${{ matrix.folder }}/main.typ
+            ${{ env.output_dir }}/${{ env.folder_name }}.pdf
+
+      - name: Compile PNG preview
+        uses: docker://ghcr.io/typst/typst:v0.13.1
+        with:
+          args: >-
+            compile --root . ${{ matrix.folder }}/main.typ
+            ${{ env.output_dir }}/${{ env.folder_name }}.png --format png --pages 1 --ppi 300
+
+      - name: Stash output
+        run: |
+          git add -f ${{ env.output_dir }}/*
+          git stash push ${{ env.output_dir }}
+
+      - name: Switch to preview branch
+        run: |
+          git fetch origin preview || echo "Preview branch does not exist"
+          git switch --orphan preview || git switch -d preview
+
+      - name: Unstash and commit
+        run: |
+          git stash pop
+          git add -f ${{ env.output_dir }}/*
+          git commit -m "Update preview for ${{ matrix.folder }}" || echo "No changes to commit"
+          git push -f origin preview
