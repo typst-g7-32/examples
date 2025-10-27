@@ -1,8 +1,6 @@
 #import "@preview/modern-g7-32:0.1.0": gost, abstract, annexes, annex-heading
 #import "@preview/numberingx:0.0.1"
 
-#set text(font: "Times New Roman")
-
 // Нумерация с использованием кириллицы
 #set enum(numbering: numberingx.formatter("{lower-russian})"))
 
@@ -122,7 +120,7 @@ $ cal(A) := { x in RR | x "натуральное" } $
 Изображения добавляются с помощью функции `image()` внутри макроса `#figure`. Пример вставки изображения указан на рисунке @example-image.
 
 #figure(
-  image("/tests/assets/home.jpg", width: 60%),
+  image("images/home.jpg", width: 60%),
   caption: "Пример изображения"
 ) <example-image>
 
@@ -165,14 +163,14 @@ $ cal(A) := { x in RR | x "натуральное" } $
 Пример вставки изображения в приложение указан на рисунке @annex-image.
 
 #figure(
-  image("/tests/assets/nature.jpg", width: 40%),
+  image("images/nature.jpg", width: 40%),
   caption: "Пример изображения"
 ) <annex-image>
 
 == Изображения в под-приложениях
 Пример вставки изображения в под-приложение указан на рисунке @annex-image-3.
 #figure(
-  image("/tests/assets/abstract.jpg", width: 40%),
+  image("images/abstract.jpg", width: 40%),
   caption: "Пример изображения"
 ) <annex-image-3>
 

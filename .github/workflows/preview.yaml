@@ -5,29 +5,74 @@ on:
     branches:
       - main
     paths:
-      - documents/**/main.typ
+      - documents/**
       - .github/workflows/**
 
 jobs:
-  discover_examples:
+  discover_changed:
     runs-on: ubuntu-latest
     outputs:
-      folders: ${{ steps.discover.outputs.folders }}
+      folders: ${{ steps.filter.outputs.folders }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
-      - name: Discover document folders
-        id: discover
+      - name: Find changed document folders
+        id: filter
         run: |
-          # Find all main.typ files and get parent directories
-          folders=$(find documents -name "main.typ" -type f | xargs dirname | sort)
+          # Получаем список всех папок с main.typ
+          all_folders=$(find documents -name "main.typ" -type f | xargs dirname | sort)
           
-          # Convert to JSON array
-          folders_json=$(echo "$folders" | jq -R -s 'split("\n") | map(select(length > 0))')
+          # Получаем список изменённых файлов в последнем коммите
+          changed_files=$(git diff --name-only HEAD~1 HEAD)
           
-          # Debug output
-          echo "Discovered folders: $folders_json"
+          echo "Changed files in commit:"
+          echo "$changed_files"
+          
+          # Фильтруем папки: оставляем только те, где были изменения
+          filtered_folders=""
+          for folder in $all_folders; do
+            if echo "$changed_files" | grep -q "^$folder/"; then
+              echo "Changes detected in: $folder"
+              filtered_folders="$filtered_folders$folder"$'\n'
+            fi
+          done
+          
+          # Проверяем, существует ли ветка preview
+          git fetch origin preview 2>/dev/null || echo "Preview branch does not exist yet"
+          
+          # Если ветка preview существует, проверяем наличие папок в ней
+          if git rev-parse --verify origin/preview >/dev/null 2>&1; then
+            echo "Checking for new folders not yet in preview branch..."
+            for folder in $all_folders; do
+              folder_name=$(basename "$folder")
+              # Если папки нет в preview, добавляем её в список для сборки
+              if ! git ls-tree -r origin/preview --name-only | grep -q "^preview/$folder_name/"; then
+                echo "Folder not found in preview branch (building for first time): $folder"
+                if ! echo "$filtered_folders" | grep -q "^$folder$"; then
+                  filtered_folders="$filtered_folders$folder"$'\n'
+                fi
+              fi
+            done
+          else
+            # Если ветки preview нет вообще, собираем все документы
+            echo "Preview branch doesn't exist, building all documents"
+            filtered_folders=$(echo "$all_folders" | tr ' ' '\n')
+          fi
+          
+          # Убираем пустые строки и конвертируем в JSON
+          filtered_folders=$(echo "$filtered_folders" | grep -v '^$' || true)
+          
+          if [ -z "$filtered_folders" ]; then
+            folders_json="[]"
+            echo "No folders to build"
+          else
+            folders_json=$(echo "$filtered_folders" | jq -R -s 'split("\n") | map(select(length > 0))')
+            echo "Folders to build:"
+            echo "$folders_json"
+          fi
           
           # Use heredoc syntax for multiline output
           {
@@ -37,13 +82,14 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   build_preview:
-    needs: discover_examples
+    needs: discover_changed
     runs-on: ubuntu-latest
+    if: needs.discover_changed.outputs.folders != '[]' && needs.discover_changed.outputs.folders != ''
     permissions:
       contents: write
     strategy:
       matrix:
-        folder: ${{ fromJSON(needs.discover_examples.outputs.folders) }}
+        folder: ${{ fromJSON(needs.discover_changed.outputs.folders) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -85,12 +131,17 @@ jobs:
 
       - name: Switch to preview branch
         run: |
-          git fetch origin preview || echo "Preview branch does not exist"
-          git switch --orphan preview || git switch -d preview
+          git fetch origin preview 2>/dev/null || echo "Preview branch does not exist"
+          if git rev-parse --verify origin/preview >/dev/null 2>&1; then
+            git checkout preview
+          else
+            git checkout --orphan preview
+            git rm -rf . 2>/dev/null || true
+          fi
 
       - name: Unstash and commit
         run: |
           git stash pop
           git add -f ${{ env.output_dir }}/*
           git commit -m "Update preview for ${{ matrix.folder }}" || echo "No changes to commit"
-          git push -f origin preview
+          git push origin preview
