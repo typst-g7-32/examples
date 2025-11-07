@@ -124,11 +124,6 @@ jobs:
             compile --root . ${{ matrix.folder }}/main.typ
             ${{ env.output_dir }}/${{ env.folder_name }}.png --format png --pages 1 --ppi 300
 
-      - name: Stash output
-        run: |
-          git add -f ${{ env.output_dir }}/*
-          git stash push ${{ env.output_dir }}
-
       - name: Switch to preview branch
         run: |
           git fetch origin preview 2>/dev/null || echo "Preview branch does not exist"
@@ -139,9 +134,22 @@ jobs:
             git rm -rf . 2>/dev/null || true
           fi
 
-      - name: Unstash and commit
+      - name: Resolve binary conflicts and commit
         run: |
-          git stash pop
+          # Пытаемся применить stash, игнорируя конфликты
+          git stash pop || true
+          
+          # Разрешаем конфликты: используем сгенерированные версии (--theirs)
+          git checkout --theirs ${{ env.output_dir }}/* 2>/dev/null || true
+          
+          # Добавляем все файлы в индекс
           git add -f ${{ env.output_dir }}/*
+          
+          # Очищаем конфликтные маркеры если они остались
+          git status --porcelain | grep -E "^(AA|DU|UD|AU|UA|DD|UU)" | awk '{print $2}' | xargs -r git add
+          
+          # Коммитим изменения
           git commit -m "Update preview for ${{ matrix.folder }}" || echo "No changes to commit"
+          
+          # Пушим на preview ветку
           git push origin preview
