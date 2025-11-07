@@ -19,6 +19,18 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Check if workflow changed
+        id: workflow_check
+        run: |
+          changed_files=$(git diff --name-only HEAD~1 HEAD)
+          if echo "$changed_files" | grep -q "^\\.github/workflows/"; then
+            echo "workflow_changed=true" >> $GITHUB_OUTPUT
+            echo "Workflow file changed - will rebuild all documents"
+          else
+            echo "workflow_changed=false" >> $GITHUB_OUTPUT
+            echo "Workflow file not changed - will rebuild only changed documents"
+          fi
+
       - name: Find changed document folders
         id: filter
         run: |
@@ -31,35 +43,41 @@ jobs:
           echo "Changed files in commit:"
           echo "$changed_files"
           
-          # Фильтруем папки: оставляем только те, где были изменения
-          filtered_folders=""
-          for folder in $all_folders; do
-            if echo "$changed_files" | grep -q "^$folder/"; then
-              echo "Changes detected in: $folder"
-              filtered_folders="$filtered_folders$folder"$'\n'
-            fi
-          done
-          
-          # Проверяем, существует ли ветка preview
-          git fetch origin preview 2>/dev/null || echo "Preview branch does not exist yet"
-          
-          # Если ветка preview существует, проверяем наличие папок в ней
-          if git rev-parse --verify origin/preview >/dev/null 2>&1; then
-            echo "Checking for new folders not yet in preview branch..."
+          # Проверяем, изменился ли сам workflow
+          if echo "$changed_files" | grep -q "^\\.github/workflows/"; then
+            echo "Workflow changed - rebuilding ALL documents"
+            filtered_folders=$(echo "$all_folders" | tr ' ' '\n')
+          else
+            # Фильтруем папки: оставляем только те, где были изменения
+            filtered_folders=""
             for folder in $all_folders; do
-              folder_name=$(basename "$folder")
-              # Если папки нет в preview, добавляем её в список для сборки
-              if ! git ls-tree -r origin/preview --name-only | grep -q "^preview/$folder_name/"; then
-                echo "Folder not found in preview branch (building for first time): $folder"
-                if ! echo "$filtered_folders" | grep -q "^$folder$"; then
-                  filtered_folders="$filtered_folders$folder"$'\n'
-                fi
+              if echo "$changed_files" | grep -q "^$folder/"; then
+                echo "Changes detected in: $folder"
+                filtered_folders="$filtered_folders$folder"$'\n'
               fi
             done
-          else
-            # Если ветки preview нет вообще, собираем все документы
-            echo "Preview branch doesn't exist, building all documents"
-            filtered_folders=$(echo "$all_folders" | tr ' ' '\n')
+            
+            # Проверяем, существует ли ветка preview
+            git fetch origin preview 2>/dev/null || echo "Preview branch does not exist yet"
+            
+            # Если ветка preview существует, проверяем наличие папок в ней
+            if git rev-parse --verify origin/preview >/dev/null 2>&1; then
+              echo "Checking for new folders not yet in preview branch..."
+              for folder in $all_folders; do
+                folder_name=$(basename "$folder")
+                # Если папки нет в preview, добавляем её в список для сборки
+                if ! git ls-tree -r origin/preview --name-only | grep -q "^preview/$folder_name/"; then
+                  echo "Folder not found in preview branch (building for first time): $folder"
+                  if ! echo "$filtered_folders" | grep -q "^$folder$"; then
+                    filtered_folders="$filtered_folders$folder"$'\n'
+                  fi
+                fi
+              done
+            else
+              # Если ветки preview нет вообще, собираем все документы
+              echo "Preview branch doesn't exist, building all documents"
+              filtered_folders=$(echo "$all_folders" | tr ' ' '\n')
+            fi
           fi
           
           # Убираем пустые строки и конвертируем в JSON
@@ -69,7 +87,7 @@ jobs:
             folders_json="[]"
             echo "No folders to build"
           else
-            folders_json=$(echo "$filtered_folders" | jq -R -s 'split("\n") | map(select(length > 0))')
+            folders_json=$(echo "$filtered_folders" | jq -R -s 'split("\\n") | map(select(length > 0))')
             echo "Folders to build:"
             echo "$folders_json"
           fi
