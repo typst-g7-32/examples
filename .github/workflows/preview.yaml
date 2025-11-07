@@ -111,14 +111,14 @@ jobs:
           mkdir -p ${{ env.output_dir }}
 
       - name: Compile PDF
-        uses: docker://ghcr.io/typst/typst:v0.13.1
+        uses: docker://ghcr.io/typst/typst:0.14.0
         with:
           args: >-
             compile --root . ${{ matrix.folder }}/main.typ
             ${{ env.output_dir }}/${{ env.folder_name }}.pdf
 
       - name: Compile PNG preview
-        uses: docker://ghcr.io/typst/typst:v0.13.1
+        uses: docker://ghcr.io/typst/typst:0.14.0
         with:
           args: >-
             compile --root . ${{ matrix.folder }}/main.typ

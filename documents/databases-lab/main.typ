@@ -1,4 +1,4 @@
-#import "@preview/modern-g7-32:0.1.0": abstract, gost, title-templates
+#import "@preview/modern-g7-32:0.2.0": abstract, gost, title-templates
 
 #show: gost.with(
   title-template: title-templates.mai-university-lab,
